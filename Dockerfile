@@ -6,10 +6,8 @@ RUN adduser -D -u 1000 myuser
 
 COPY main.go .
 
-RUN go build -o main
-
 USER myuser
 
 EXPOSE 8080
 
-CMD ["./main"]
+ENTRYPOINT [ "/usr/local/go/bin/go", "run", "main.go" ]
