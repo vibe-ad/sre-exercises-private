@@ -1,13 +1,15 @@
-FROM golang:alpine
+FROM alpine:3.15 as alpine
 
 WORKDIR /app
 
-RUN adduser -D -u 1000 myuser
-
-COPY main.go .
-
-USER myuser
+# Install timezone data
+COPY .env .env
+RUN apk add -U --no-cache tzdata strace
 
 EXPOSE 8080
 
-ENTRYPOINT [ "/usr/local/go/bin/go", "run", "main.go" ]
+COPY bugg-go .
+
+STOPSIGNAL SIGQUIT
+
+ENTRYPOINT [ "/app/bugg-go" ]
