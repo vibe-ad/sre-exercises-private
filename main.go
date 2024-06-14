@@ -1,15 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"io/ioutil"
-	"log"
+	"io"
 	"math/rand"
 	"net/http"
 	"os"
 	"strings"
-	"syscall"
-	"time"
 )
 
 var zoneDirs = []string{
@@ -17,6 +15,51 @@ var zoneDirs = []string{
 	"/usr/share/zoneinfo",
 	"/usr/share/lib/zoneinfo",
 	"/usr/lib/locale/TZ",
+}
+
+func LoadEnvFile(envFilepath string) bool {
+	file, err := os.Open(envFilepath)
+	if err != nil {
+		return false
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		separatorIndex := strings.Index(line, "=")
+
+		if separatorIndex == -1 {
+			continue
+		}
+
+		key, value := line[0:separatorIndex], line[separatorIndex+1:]
+
+		_ = os.Setenv(key, value)
+	}
+
+	return true
+}
+
+func Setup() {
+	f, err := os.OpenFile("/etc/hosts", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		panic(err)
+	}
+
+	defer f.Close()
+
+	if _, err = f.WriteString("127.0.1.2 httpbin.org"); err != nil {
+		panic(err)
+	}
 }
 
 func GetAllTZ() []string {
@@ -54,26 +97,27 @@ var allTZ = GetAllTZ()
 func hello(w http.ResponseWriter, req *http.Request) {
 
 	id := rand.Int63()
-	fmt.Fprintf(w, "Hello, you were given id %d\n", id)
+	tz := allTZ[rand.Intn(len(allTZ))]
+	fmt.Fprintf(w, "Hello, you were given id %d and timezone %s\n", id, tz)
 
-	tmpFolder, err := os.MkdirTemp("/tmp/", "test")
-
+	client := http.Client{}
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://httpbin.org/anything?id=%d&tz=%s", id, tz), nil)
 	if err != nil {
-		panic("An error occured")
+		fmt.Println(err)
 	}
-	for i := range allTZ {
-		filename := fmt.Sprintf("%s/session_data_%s.txt", tmpFolder, allTZ[i])
-		flags := syscall.O_WRONLY | syscall.O_CREAT | syscall.O_TRUNC
-		mode := uint32(0644)
-		fd, err := syscall.Open(filename, flags, mode)
-		if err == nil {
-			syscall.Write(fd, []byte(time.Now().String()))
-		}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println(err)
 	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	fmt.Fprintf(w, "Server responded with:")
+	fmt.Fprintf(w, string(body))
 }
 
 func main() {
-	log.SetOutput(ioutil.Discard)
+	LoadEnvFile(".env")
+	Setup()
 	http.HandleFunc("/hello", hello)
 	fmt.Printf("Starting server!\n")
 	http.ListenAndServe("0.0.0.0:8080", nil)
